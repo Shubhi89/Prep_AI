@@ -1,24 +1,26 @@
 import { db } from '@/firebase/admin';
 import { getRandomInterviewCover } from '@/lib/utils';
-import {google} from '@ai-sdk/google';
-import {generateText} from 'ai';
+import {GoogleGenAI} from '@google/genai';
 
 export async function GET() {
     return Response.json({success:true , data: 'thankyou'} , {status:200});
 }
 
+const ai = new GoogleGenAI({});
+
 export async function POST(request: Request) {
     const {type , role , level, techstack , amount , userid} = await request.json();
     try {
-        const {text : questions} = await generateText({
-            model: google('gemini-2.5-flash'),
-            prompt: `Prepare questions for a job interview. The job role is ${role} , level is ${level} and techstack is ${techstack}. Generate ${amount} questions. The focus between behavioural and technical questions should lean towards ${type} questions. Please return only the questions , without any additional text. The questions are going to be read by a voice assistant so do not use "/" or "*" or any other special characters that might break the voice assistant. Return the questions formatted like this : ["Question 1" , "Question2" , "Question 3"] Thank you!`,
+        const response  = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Prepare questions for a job interview. The job role is ${role} , level is ${level} and techstack is ${techstack}. Generate ${amount} questions. The focus between behavioural and technical questions should lean towards ${type} questions. Please return only the questions , without any additional text. The questions are going to be read by a voice assistant so do not use "/" or "*" or any other special characters that might break the voice assistant. Return the questions formatted like this : ["Question 1" , "Question2" , "Question 3"] Thank you!`,
         });
 
+        const questions = response.text;
         const interview = {
             role,type,level,
             techstack : techstack.split(','),
-            questions : JSON.parse(questions),
+            questions : JSON.parse(questions ?? '[]'),
             userId: userid,
             finalized:true,
             coverImage : getRandomInterviewCover(),
