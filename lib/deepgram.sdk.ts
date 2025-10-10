@@ -1,8 +1,12 @@
-import { createClient } from "@deepgram/sdk";
-import dotenv from "dotenv";
+import {createClient , AgentEvents} from '@deepgram/sdk';
+import { writeFile , appendFile} from 'fs/promises';
+import fetch from 'cross-fetch';
+import { join } from 'path';
 
-dotenv.config();
+const deepgram = createClient(process.env.NEXT_PUBLIC_DEEPGRAM_API_KEY);
 
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+const agent = async() => {
 
-export default deepgram;
+}
+
+void agent();

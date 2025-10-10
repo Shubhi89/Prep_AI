@@ -1,6 +1,8 @@
-import React from "react";
+'use client';
+import React , {useEffect, useState}from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
+import { useRouter } from "next/router";
 
 enum CallStatus {
   INACTIVE = "INACTIVE",
@@ -9,14 +11,36 @@ enum CallStatus {
   CONNECTING = "CONNECTING",
 }
 
+interface SavedMessage {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+}
+
 const Agent = ({ userName, userId, type }: AgentProps) => {
-  const isSpeaking = true;
-  const callStatus = CallStatus.COMPLETED;
-  const messages = [
-    "what is your greatest strength?",
-    "my greatest strength is my ability to adapt to new situations and learn quickly. I am also very organized and detail-oriented, which helps me to stay on top of my work and meet deadlines.",
-  ];
-  const lastMessage = messages[messages.length - 1];
+  const router = useRouter();
+  const [isSpeaking , setIsSpeaking] = useState(false);
+  const [callStatus, setCallStatus] = useState<CallStatus>(CallStatus.INACTIVE);
+  const [messages , setMessages] = useState<SavedMessage[]>([]);
+  
+  useEffect(() => {
+    const onCallStart = () => setCallStatus(CallStatus.ACTIVE);
+    const onCallEnd = () => setCallStatus(CallStatus.COMPLETED);
+
+    const onMessage = (message: Message) => {
+        if(message.type ==='transcript' && message.transcriptType === 'final') {
+            const newMessage = {role : message.role , content : message.transcript}
+            setMessages((prev) => [...prev , newMessage]);
+        }
+    }
+
+    const onSpeechStart = () => setIsSpeaking(true);
+    const onSpeechEnd = () => setIsSpeaking(false);
+
+    const onError = (error: Error) => console.log('Error' , error);
+
+    
+
+  },[])
   return (
     <>
       <div className="call-view">
