@@ -1,8 +1,8 @@
-'use client';
-import React , {useEffect, useState}from "react";
+"use client";
+import React, { useEffect, useState , useRef} from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
-import { useRouter } from "next/router";
+import { useRouter } from "next/navigation";
 
 enum CallStatus {
   INACTIVE = "INACTIVE",
@@ -11,36 +11,94 @@ enum CallStatus {
   CONNECTING = "CONNECTING",
 }
 
-interface SavedMessage {
-    role: 'user' | 'assistant' | 'system';
-    content: string;
-}
-
 const Agent = ({ userName, userId, type }: AgentProps) => {
   const router = useRouter();
-  const [isSpeaking , setIsSpeaking] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const [callStatus, setCallStatus] = useState<CallStatus>(CallStatus.INACTIVE);
-  const [messages , setMessages] = useState<SavedMessage[]>([]);
-  
-  useEffect(() => {
-    const onCallStart = () => setCallStatus(CallStatus.ACTIVE);
-    const onCallEnd = () => setCallStatus(CallStatus.COMPLETED);
 
-    const onMessage = (message: Message) => {
-        if(message.type ==='transcript' && message.transcriptType === 'final') {
-            const newMessage = {role : message.role , content : message.transcript}
-            setMessages((prev) => [...prev , newMessage]);
-        }
+  const wsRef = useRef<WebSocket | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioQueueRef = useRef<Blob[]>([]);
+  const isPlayingRef = useRef(false);
+  const audioPlayerRef = useRef<HTMLAudioElement>(typeof window !== "undefined" ? new Audio() : null);
+
+  const playNextAudio = () => {
+    if (audioQueueRef.current.length > 0 && !isPlayingRef.current && audioPlayerRef.current) {
+      isPlayingRef.current = true;
+      setIsSpeaking(true);
+
+      const audioBlob = audioQueueRef.current.shift();
+      if (audioBlob) {
+        const audioUrl = URL.createObjectURL(audioBlob);
+        audioPlayerRef.current.src = audioUrl;
+        audioPlayerRef.current.play();
+        audioPlayerRef.current.onended = () => {
+          isPlayingRef.current = false;
+          setIsSpeaking(false); // Agent finished speaking
+          URL.revokeObjectURL(audioUrl);
+          playNextAudio(); // Check if there's more audio in the queue
+        };
+      }
+    }
+  };
+
+  const handleCall = async () => {
+    if (type !== 'interview') {
+      alert("This component is currently configured for interviews only.");
+      return;
     }
 
-    const onSpeechStart = () => setIsSpeaking(true);
-    const onSpeechEnd = () => setIsSpeaking(false);
+    setCallStatus(CallStatus.CONNECTING);
 
-    const onError = (error: Error) => console.log('Error' , error);
+    // Connect to our local agent server, passing the userId as a query parameter
+    const ws = new WebSocket(`ws://localhost:3001?userId=${userId}`);
+    wsRef.current = ws;
 
-    
+    ws.onopen = async () => {
+      console.log("Frontend connected to agent server.");
+      setCallStatus(CallStatus.ACTIVE);
 
-  },[])
+      // Start capturing microphone audio
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+          ws.send(event.data);
+        }
+      };
+      mediaRecorder.start(250); // Send audio data in 250ms chunks
+    };
+
+    // When we receive audio from the server, add it to the playback queue
+    ws.onmessage = (event) => {
+      if (event.data instanceof Blob) {
+        audioQueueRef.current.push(event.data);
+        playNextAudio();
+      }
+    };
+
+    ws.onerror = (err) => console.error("WebSocket error:", err);
+    ws.onclose = () => handleDisconnect(); // Clean up when the connection closes
+  };
+
+  // Function to end the call and clean up resources
+  const handleDisconnect = () => {
+    if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+    }
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.close();
+    }
+    setCallStatus(CallStatus.COMPLETED);
+    setIsSpeaking(false);
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+  };
+
+  const isCallInactiveOrFinished = callStatus === CallStatus.INACTIVE || callStatus === CallStatus.COMPLETED;
+
   return (
     <>
       <div className="call-view">
@@ -71,32 +129,22 @@ const Agent = ({ userName, userId, type }: AgentProps) => {
         </div>
       </div>
 
-       {messages.length > 0 && (
-      <div className="transcript-border">
-        <div className="transcript">
-            <p key={lastMessage} className={cn('transition-opacity duration-500 opacity-0' , 'animate-fadeIn opacity-100')}>
-                {lastMessage}
-            </p>
-        </div>
-      </div>
-       )}
       <div className="w-full flex justify-center">
         {callStatus !== "ACTIVE" ? (
-          <button className="relative btn-call">
+          <button className="relative btn-call" onClick={handleCall} >
             <span
               className={cn(
                 "absolute animate-ping rounded-full opacity-75",
-                (callStatus !== "CONNECTING") & "hidden"
+                (callStatus !== "CONNECTING") && "hidden"
               )}
             ></span>
             <span>
-              {callStatus === "INACTIVE" || callStatus === "COMPLETED"
-                ? "Call"
+              {isCallInactiveOrFinished ? "Call"
                 : "...."}
             </span>
           </button>
         ) : (
-          <button className="btn-disconnect">End</button>
+          <button className="btn-disconnect" onClick={handleDisconnect}>End</button>
         )}
       </div>
     </>
